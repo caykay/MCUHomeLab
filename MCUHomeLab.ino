@@ -29,17 +29,42 @@ const char* WifiPassword = "******";
 
 void handleNotFound(WebServer* server)
 {
-  server->onNotFound([&server]{
+  server->onNotFound([server]{
     server->send(404, "text/html", 
           "<!DOCTYPE html>\
             <html>\
               <body>\
-                <p>Welcome to my ESP32 Board</p>\
+                <p>Page not found </p>\
               </body>\
             </html>\
           "
           );
   });
+}
+
+void handleConfigSetupRequest()
+{
+  if (APServer == nullptr)
+    return;
+
+   APServer->send(200, "text/html", 
+          "<!DOCTYPE html>\
+            <html>\
+              <body>\
+                <p>Configure the Home Lab wifi:</p>\
+                <form method='post' action='/connect-wifi'>\
+                  <input type='text' placeholder='ssid' required/>\
+                  <input type='password' placeholder='password' required/>\
+                  <input type=\"submit\" value=\"Connect\"/>\
+                </form>\
+              </body>\
+            </html>\
+          "
+          );
+}
+
+void handleWifiConnection()
+{
 }
 
 void setup()
@@ -56,12 +81,15 @@ void setup()
     APServer->begin();
 
     // handle root
-    APServer->on("/", []{
+    APServer->on("/", [&APServer]{
       APServer->send(200, "text/html", 
         "<!DOCTYPE html>\
           <html>\
             <body>\
               <p>Welcome to my ESP32 Board</p>\
+              <form action=\"/wifi-setup\">\
+                <input type=\"submit\" value=\"Configure Wifi\"/>\
+              </form>\
             </body>\
           </html>\
         "
@@ -71,8 +99,15 @@ void setup()
     // handle not found
     handleNotFound(APServer);
 
-    // TODO: handle config settings here
+    APServer->on("/wifi-setup", handleConfigSetupRequest);
 
+    // TODO: handle config settings here
+    APServer->on(
+      "/connect-wifi", HTTP_POST,
+      []{
+        Serial.println("Yayyy you've gotten somewhere");
+      }
+    );
 
     Serial.print("Started APServer. Now listening at: ");
     Serial.print(WiFi.softAPIP());
@@ -83,9 +118,12 @@ void setup()
 
 void loop()
 {
-  if (APServer)
+  if (APServer != nullptr)
     APServer->handleClient();
 
-  if (PublicServer)
+  delay(2);
+
+  if (PublicServer != nullptr)
     PublicServer->handleClient();
+  delay(2);
 }
