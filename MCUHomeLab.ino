@@ -24,6 +24,24 @@ constexpr const char* APPassword = "12345678";
 const char* WifiSsid = "******";
 const char* WifiPassword = "******";
 
+
+// middleware
+
+void handleNotFound(WebServer* server)
+{
+  server->onNotFound([&server]{
+    server->send(404, "text/html", 
+          "<!DOCTYPE html>\
+            <html>\
+              <body>\
+                <p>Welcome to my ESP32 Board</p>\
+              </body>\
+            </html>\
+          "
+          );
+  });
+}
+
 void setup()
 {
   Serial.begin(115200);
@@ -39,15 +57,19 @@ void setup()
 
     // handle root
     APServer->on("/", []{
-      APServer->send(200, "text/html", "\
-        <!DOCTYPE html>\
+      APServer->send(200, "text/html", 
+        "<!DOCTYPE html>\
           <html>\
             <body>\
               <p>Welcome to my ESP32 Board</p>\
             </body>\
-          </html>"
+          </html>\
+        "
       );
     });
+
+    // handle not found
+    handleNotFound(APServer);
 
     // TODO: handle config settings here
 
