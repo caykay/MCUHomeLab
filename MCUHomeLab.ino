@@ -54,9 +54,11 @@ void handleWifiConnection()
     Serial.print("Attempting to connect to wifi -> SSID: ");
     Serial.println(ssid);
 
-    WiFi.mode(WIFI_AP_STA);
+    WiFi.disconnect(true, true); 
+
+    WiFi.mode(WIFI_AP_STA); // allows the esp32 to act both as a AP and STA
     auto status = WiFi.begin(ssid, password);
-    int attempts = 5;
+    int attempts = 8;
     while (status != WL_CONNECTED && attempts > 1)
     {
       delay(500);
@@ -64,16 +66,31 @@ void handleWifiConnection()
       attempts --;
       Serial.print('.');
     }
+
+    Serial.println("");
     
-    if (status = WL_CONNECTED)
+    if (status == WL_CONNECTED)
     {
-      Serial.println("Successfully connected to wifi");
-      APServer->send(301);
+      const char* connectedSSID = WiFi.STA.SSID().c_str();
+      // debug logs
+      Serial.print("Connected to wifi with SSID: ");
+      Serial.print(connectedSSID );
+      Serial.print(" and IP address: ");
+      Serial.println(WiFi.localIP().toString());
+
+      std::stringstream message;
+      message << "<p>";
+      message << "Successfully connected wifi with SSID: " << connectedSSID;
+      message << " With IpAddress: " << WiFi.localIP().toString().c_str();
+      message << "</p>";
+      // debug code only
+      APServer->send(200, "text/html", writeHTML(message.str().c_str()));
       // TODO -> start the Public Web Server
       return;
     }
     else
     {
+      Serial.println("Could not connect to the wifi");
       errorMsg = "Failed to connect to the wifi. Try again";
     }
   }
@@ -138,10 +155,9 @@ void loop()
   if (APServer != nullptr)
     APServer->handleClient();
 
-  delay(2);
-
   if (PublicServer != nullptr)
     PublicServer->handleClient();
+
   delay(2);
 }
 
