@@ -12,7 +12,7 @@ constexpr int Port = 80;
 
 // WiFi
 
-WebServer* PublicServer;
+WebServer* HomeLabServer;
 
 // AP
 
@@ -48,44 +48,19 @@ void handleWifiConnection()
   std::string errorMsg = "";
   if (APServer->hasArg("ssid") && APServer->hasArg("password"))
   {
-    auto ssid = APServer->arg("ssid");
-    auto password = APServer->arg("password");
-
-    Serial.print("Attempting to connect to wifi -> SSID: ");
-    Serial.println(ssid);
-
-    WiFi.disconnect(true, true); 
-
-    WiFi.mode(WIFI_AP_STA); // allows the esp32 to act both as a AP and STA
-    auto status = WiFi.begin(ssid, password);
-    int attempts = 8;
-    while (status != WL_CONNECTED && attempts > 1)
-    {
-      delay(500);
-      status = WiFi.status();
-      attempts --;
-      Serial.print('.');
-    }
-
-    Serial.println("");
+    bool connected = connectWifi(APServer->arg("ssid"), APServer->arg("password"));
     
-    if (status == WL_CONNECTED)
+    if (connected)
     {
-      const char* connectedSSID = WiFi.STA.SSID().c_str();
-      // debug logs
-      Serial.print("Connected to wifi with SSID: ");
-      Serial.print(connectedSSID );
-      Serial.print(" and IP address: ");
-      Serial.println(WiFi.localIP().toString());
-
+      const char* connectedSSID = WiFi.SSID().c_str(); // for some reason this returns special characters. TODO: inspect the raw buffer, perhaps a messed up byte conversion
       std::stringstream message;
       message << "<p>";
       message << "Successfully connected wifi with SSID: " << connectedSSID;
       message << " With IpAddress: " << WiFi.localIP().toString().c_str();
       message << "</p>";
-      // debug code only
       APServer->send(200, "text/html", writeHTML(message.str().c_str()));
-      // TODO -> start the Public Web Server
+
+      startHomeLabServer();
       return;
     }
     else
@@ -114,40 +89,7 @@ void setup()
   Serial.begin(115200);
 
   // setup AP + AP Server
-  if (WiFi.softAP(APSsid, APPassword))
-  {
-    Serial.print("Started WiFi access point with SSID: ");
-    Serial.println(APSsid);
-
-    APServer = new WebServer(WiFi.softAPIP(), Port);
-    APServer->begin();
-
-    // handle root
-    APServer->on("/", [&APServer]{
-      APServer->send(
-        200, "text/html", R"(
-        <!DOCTYPE html>
-        <html>
-          <body>
-            <p>Welcome to my ESP32 Board</p>
-            <form action="/wifi-setup">
-              <input type="submit" value="Configure Wifi"/>
-            </form>
-          </body>
-        </html>)"
-      );
-    });
-
-    // handle not found
-    handleNotFound(APServer);
-
-    APServer->on("/connect-wifi", handleWifiConnection);
-
-    Serial.print("Started APServer. Now listening at: ");
-    Serial.print(WiFi.softAPIP());
-    Serial.print(":");
-    Serial.println(Port);
-  }
+  startAPServer();
 }
 
 void loop()
@@ -155,8 +97,8 @@ void loop()
   if (APServer != nullptr)
     APServer->handleClient();
 
-  if (PublicServer != nullptr)
-    PublicServer->handleClient();
+  if (HomeLabServer != nullptr)
+    HomeLabServer->handleClient();
 
   delay(2);
 }
@@ -176,4 +118,84 @@ const char* writeHTML(const char* bodyContent)
     </html>)";
   
   return htmlContent.str().c_str();
+}
+
+void startAPServer()
+{
+  if (WiFi.softAP(APSsid, APPassword))
+  {
+    Serial.printf("Started WiFi access point with SSID: %s\n", APSsid);
+
+    APServer = new WebServer(WiFi.softAPIP(), Port);
+    APServer->begin();
+
+    // handle root
+    APServer->on("/", [&APServer]{
+      APServer->send(
+        200, "text/html", R"(
+        <!DOCTYPE html>
+        <html>
+          <body>
+            <p>Welcome to my ESP32 Board</p>
+            <form action="/connect-wifi">
+              <input type="submit" value="Configure Wifi"/>
+            </form>
+          </body>
+        </html>)"
+      );
+    });
+
+    // handle not found
+    handleNotFound(APServer);
+
+    APServer->on("/connect-wifi", handleWifiConnection);
+
+    Serial.printf("Started APServer. Now listening at: %s:%i\n", WiFi.softAPIP().toString(), Port);
+  }
+}
+
+void startHomeLabServer()
+{
+  // need a more efficient way to handle web servers, ideally we do not want the full recreation
+  if (HomeLabServer)
+    delete HomeLabServer;
+  delay(50);
+  HomeLabServer = new WebServer(WiFi.localIP(), Port);
+  HomeLabServer->begin();
+
+  Serial.printf("Started Home lab server at address: %s:%i\n", WiFi.localIP().toString(), Port);
+
+  // handle root
+  HomeLabServer->on("/", [&HomeLabServer]{
+    HomeLabServer->send(
+      200, "text/html", R"(
+      <!DOCTYPE html>
+      <html>
+        <body>
+          <p>Welcome to caykay's Home lab</p>
+        </body>
+      </html>)"
+    );
+  });
+  // handle not found
+  handleNotFound(HomeLabServer);
+}
+
+bool connectWifi(String ssid, String password)
+{
+  WiFi.disconnect(true, true); 
+
+  WiFi.mode(WIFI_AP_STA); // allows the esp32 to act both as a AP and STA
+  auto status = WiFi.begin(ssid, password);
+  unsigned long start = millis();
+  while (status != WL_CONNECTED && millis() - start <= 10'000)
+  {
+    delay(500);
+    status = WiFi.status();
+    Serial.print('.');
+  }
+
+  if (millis() != start)
+    Serial.println();
+  return status == WL_CONNECTED;
 }
