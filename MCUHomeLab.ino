@@ -8,30 +8,22 @@
 
 constexpr int NPNBasePin = 2;
 
-constexpr int Port = 80;
-
 // WiFi
 
-WebServer* HomeLabServer;
+WebServer HomeLabServer(80);
 
 // AP
 
-WebServer* APServer;
+WebServer APServer(81);
 constexpr const char* APSsid = "ESP32 Wifi";
 constexpr const char* APPassword = "12345678";
 
-// Config
-
-const char* WifiSsid = "******";
-const char* WifiPassword = "******";
-
-
 // middleware
 
-void handleNotFound(WebServer* server)
+void handleNotFound(WebServer& server)
 {
-  server->onNotFound([server]{
-    server->send(
+  server.onNotFound([&server]{
+    server.send(
       404, "text/html", R"(
       <!DOCTYPE html>
       <html>
@@ -46,9 +38,9 @@ void handleNotFound(WebServer* server)
 void handleWifiConnection()
 {
   std::string errorMsg = "";
-  if (APServer->hasArg("ssid") && APServer->hasArg("password"))
+  if (APServer.hasArg("ssid") && APServer.hasArg("password"))
   {
-    bool connected = connectWifi(APServer->arg("ssid"), APServer->arg("password"));
+    bool connected = connectWifi(APServer.arg("ssid"), APServer.arg("password"));
     
     if (connected)
     {
@@ -58,9 +50,8 @@ void handleWifiConnection()
       message << "Successfully connected wifi with SSID: " << connectedSSID;
       message << " With IpAddress: " << WiFi.localIP().toString().c_str();
       message << "</p>";
-      APServer->send(200, "text/html", writeHTML(message.str().c_str()));
+      APServer.send(200, "text/html", writeHTML(message.str().c_str()));
 
-      startHomeLabServer();
       return;
     }
     else
@@ -81,7 +72,7 @@ void handleWifiConnection()
   )";
   content << "<p>" << errorMsg << "</p>";
 
-  APServer->send(200, "text/html", writeHTML(content.str().c_str()));
+  APServer.send(200, "text/html", writeHTML(content.str().c_str()));
 }
 
 void setup()
@@ -90,15 +81,13 @@ void setup()
 
   // setup AP + AP Server
   startAPServer();
+  startHomeLabServer();
 }
 
 void loop()
 {
-  if (APServer != nullptr)
-    APServer->handleClient();
-
-  if (HomeLabServer != nullptr)
-    HomeLabServer->handleClient();
+  APServer.handleClient();
+  HomeLabServer.handleClient();
 
   delay(2);
 }
@@ -126,12 +115,11 @@ void startAPServer()
   {
     Serial.printf("Started WiFi access point with SSID: %s\n", APSsid);
 
-    APServer = new WebServer(WiFi.softAPIP(), Port);
-    APServer->begin();
+    APServer.begin();
 
     // handle root
-    APServer->on("/", [&APServer]{
-      APServer->send(
+    APServer.on("/", [&APServer]{
+      APServer.send(
         200, "text/html", R"(
         <!DOCTYPE html>
         <html>
@@ -148,26 +136,23 @@ void startAPServer()
     // handle not found
     handleNotFound(APServer);
 
-    APServer->on("/connect-wifi", handleWifiConnection);
+    APServer.on("/connect-wifi", handleWifiConnection);
 
-    Serial.printf("Started APServer. Now listening at: %s:%i\n", WiFi.softAPIP().toString(), Port);
+    Serial.printf("Started APServer. Now listening at: %s\n", WiFi.softAPIP().toString());
   }
 }
 
 void startHomeLabServer()
 {
   // need a more efficient way to handle web servers, ideally we do not want the full recreation
-  if (HomeLabServer)
-    delete HomeLabServer;
   delay(50);
-  HomeLabServer = new WebServer(WiFi.localIP(), Port);
-  HomeLabServer->begin();
+  HomeLabServer.begin();
 
-  Serial.printf("Started Home lab server at address: %s:%i\n", WiFi.localIP().toString(), Port);
+  Serial.printf("Started Home lab server at address: %s\n", WiFi.localIP().toString());
 
   // handle root
-  HomeLabServer->on("/", [&HomeLabServer]{
-    HomeLabServer->send(
+  HomeLabServer.on("/", [&HomeLabServer]{
+    HomeLabServer.send(
       200, "text/html", R"(
       <!DOCTYPE html>
       <html>
