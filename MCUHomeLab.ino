@@ -11,7 +11,7 @@ constexpr int NPNBasePin = 2;
 
 // WiFi
 
-WebServer HomeLabServer(80);
+WebServer STAServer(80);
 
 // AP
 
@@ -28,6 +28,14 @@ const char* captivePortalRoot = R"(
       <form action="/connect-wifi">
         <input type="submit" value="Configure Wifi"/>
       </form>
+    </body>
+  </html>)";
+
+const char* wifiFoundMessage = R"(
+  <!DOCTYPE html>
+  <html>
+    <body>
+      <p>Connected to Wifi. Closing captive portal.</p>
     </body>
   </html>)";
 
@@ -51,11 +59,20 @@ void handleNotFound(WebServer& server)
 void WiFiEvent(WiFiEvent_t event) {
   switch (event) {
     case ARDUINO_EVENT_WIFI_STA_GOT_IP:
-      //When connected set
+      // delay a lil bit before switching over from AP to STA
+      delay(2000);
       APServer.stop();
+      dnsServer.stop();
+      WiFi.softAPdisconnect();
+      delay(50);
+      // start STA server
+      WiFi.mode(WIFI_STA);
+      STAServer.begin();
+      Serial.printf("Started STA server at address: %s\n", WiFi.localIP().toString());
       break;
     case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
       // restart DNS and AP servers
+      // or maybe re-attempt to connect to wifi
       break;
     default: break;
   }
@@ -70,16 +87,8 @@ void handleWifiConnection()
     
     if (connected)
     {
-      const char* connectedSSID = WiFi.SSID().c_str(); // for some reason this returns special characters. TODO: inspect the raw buffer, perhaps a messed up byte conversion
-      std::stringstream message;
-      message << "<p>";
-      message << "Successfully connected wifi with SSID: " << connectedSSID;
-      message << " With IpAddress: " << WiFi.localIP().toString().c_str();
-      message << "</p>";
-      APServer.send(200, "text/html", writeHTML(message.str().c_str()));
-
-      startHomeLabServer();
-
+      APServer.sendHeader("Location", "/wifi-connected");
+      APServer.send(302, "text/plain", "AP and DNS closing soon");
       return;
     }
     else
@@ -91,7 +100,7 @@ void handleWifiConnection()
 
   std::stringstream content;
   content << R"(
-    <p>Configure the Home Lab wifi:</p>
+    <p>Setup the STA wifi:</p>
     <form method='post' action='/connect-wifi'>
       <input name="ssid" type='text' placeholder='ssid' required/>
       <input name='password' type='password' placeholder='password' required/>
@@ -115,14 +124,14 @@ void setup()
   // setup AP + AP Server
   startAPServer();
 
-
+  setupSTAServer();
 }
 
 void loop()
 {
   dnsServer.processNextRequest();
   APServer.handleClient();
-  HomeLabServer.handleClient();
+  STAServer.handleClient();
 
   delay(2);
 }
@@ -171,21 +180,19 @@ void startAPServer()
 
     APServer.on("/connect-wifi", handleWifiConnection);
 
+    APServer.on("/wifi-connected", []{
+      APServer.send(200, "text/html", wifiFoundMessage);
+    });
+
     Serial.printf("Started APServer. Now listening at: %s\n", WiFi.softAPIP().toString());
   }
 }
 
-void startHomeLabServer()
+void setupSTAServer()
 {
-  // need a more efficient way to handle web servers, ideally we do not want the full recreation
-  delay(50);
-  HomeLabServer.begin();
-
-  Serial.printf("Started Home lab server at address: %s\n", WiFi.localIP().toString());
-
   // handle root
-  HomeLabServer.on("/", [&HomeLabServer]{
-    HomeLabServer.send(
+  STAServer.on("/", [&STAServer]{
+    STAServer.send(
       200, "text/html", R"(
       <!DOCTYPE html>
       <html>
@@ -196,7 +203,7 @@ void startHomeLabServer()
     );
   });
   // handle not found
-  handleNotFound(HomeLabServer);
+  handleNotFound(STAServer);
 }
 
 bool connectWifi(String ssid, String password)
