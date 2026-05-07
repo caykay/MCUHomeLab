@@ -1,5 +1,6 @@
 #include <WiFi.h>
 #include <WebServer.h>
+#include <DNSServer.h>
 
 #include <memory>
 #include <sstream>
@@ -14,7 +15,8 @@ WebServer HomeLabServer(80);
 
 // AP
 
-WebServer APServer(81);
+DNSServer dnsServer;
+WebServer APServer(80);
 constexpr const char* APSsid = "ESP32 Wifi";
 constexpr const char* APPassword = "12345678";
 
@@ -24,7 +26,7 @@ void handleNotFound(WebServer& server)
 {
   server.onNotFound([&server]{
     server.send(
-      404, "text/html", R"(
+      302, "text/html", R"(
       <!DOCTYPE html>
       <html>
         <body>
@@ -33,6 +35,19 @@ void handleNotFound(WebServer& server)
       </html>)"
     );
   });
+}
+
+void WiFiEvent(WiFiEvent_t event) {
+  switch (event) {
+    case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+      //When connected set
+      APServer.stop();
+      break;
+    case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+      // restart DNS and AP servers
+      break;
+    default: break;
+  }
 }
 
 void handleWifiConnection()
@@ -51,6 +66,8 @@ void handleWifiConnection()
       message << " With IpAddress: " << WiFi.localIP().toString().c_str();
       message << "</p>";
       APServer.send(200, "text/html", writeHTML(message.str().c_str()));
+
+      startHomeLabServer();
 
       return;
     }
@@ -79,13 +96,20 @@ void setup()
 {
   Serial.begin(115200);
 
+  WiFi.mode(WIFI_AP);
+  WiFi.onEvent(WiFiEvent);
+
+  // WiFi.AP.enableDhcpCaptivePortal();
+
   // setup AP + AP Server
   startAPServer();
-  startHomeLabServer();
+
+
 }
 
 void loop()
 {
+  dnsServer.processNextRequest();
   APServer.handleClient();
   HomeLabServer.handleClient();
 
@@ -114,6 +138,12 @@ void startAPServer()
   if (WiFi.softAP(APSsid, APPassword))
   {
     Serial.printf("Started WiFi access point with SSID: %s\n", APSsid);
+
+    if (dnsServer.start(53, "*", WiFi.softAPIP())) {
+      Serial.println("Started DNS server in captive portal-mode");
+    } else {
+      Serial.println("Err: Can't start DNS server!");
+    }
 
     APServer.begin();
 
