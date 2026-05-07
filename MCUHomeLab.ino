@@ -20,6 +20,17 @@ WebServer APServer(80);
 constexpr const char* APSsid = "ESP32 Wifi";
 constexpr const char* APPassword = "12345678";
 
+const char* captivePortalRoot = R"(
+  <!DOCTYPE html>
+  <html>
+    <body>
+      <p>Welcome to my ESP32 Board</p>
+      <form action="/connect-wifi">
+        <input type="submit" value="Configure Wifi"/>
+      </form>
+    </body>
+  </html>)";
+
 // middleware
 
 void handleNotFound(WebServer& server)
@@ -149,22 +160,14 @@ void startAPServer()
 
     // handle root
     APServer.on("/", [&APServer]{
-      APServer.send(
-        200, "text/html", R"(
-        <!DOCTYPE html>
-        <html>
-          <body>
-            <p>Welcome to my ESP32 Board</p>
-            <form action="/connect-wifi">
-              <input type="submit" value="Configure Wifi"/>
-            </form>
-          </body>
-        </html>)"
-      );
+      APServer.send(200, "text/html", captivePortalRoot);
     });
 
     // handle not found
-    handleNotFound(APServer);
+    APServer.onNotFound([&APServer]{
+      APServer.sendHeader("Location", "/");
+      APServer.send(302, "text/plain", "Redirect to captive portal");
+    });
 
     APServer.on("/connect-wifi", handleWifiConnection);
 
