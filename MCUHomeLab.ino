@@ -8,7 +8,7 @@
 
 // MCU board constants
 
-constexpr int NPNBasePin = 2;
+constexpr int LEDPin = 2;
 
 // WiFi
 
@@ -151,6 +151,16 @@ void setupSTAServer()
   STAServer.on("/", [&STAServer]{
     STAServer.send(200, "text/html", STAIndexContent);
   });
+
+  STAServer.on("toggleLED", []{
+    bool status = digitalRead(LEDPin);
+    digitalWrite(LEDPin, !status);
+
+    StreamString json;
+    json.printf(R"(["state": "%s"])", !status ? "on" : "off");
+    STAServer.send(200, "application/json", (String)json);
+  });
+
   // handle not found
   handleNotFound(STAServer);
 }
