@@ -1,7 +1,10 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <DNSServer.h>
+#include <LittleFS.h>
 #include <StreamString.h>
+
+#include "staticcontent.h"
 
 // MCU board constants
 
@@ -18,43 +21,10 @@ WebServer APServer(80);
 constexpr const char* APSsid = "ESP32 Wifi";
 constexpr const char* APPassword = "12345678";
 
-const char* captivePortalRoot = R"(
-  <!DOCTYPE html>
-  <html>
-    <body>
-      <p>Welcome to my ESP32 Board</p>
-      <form action="/connect-wifi">
-        <input type="submit" value="Configure Wifi"/>
-      </form>
-    </body>
-  </html>)";
+// Wifi Events
 
-const char* wifiFoundMessage = R"(
-  <!DOCTYPE html>
-  <html>
-    <body>
-      <p>Connected to Wifi. Closing ESP32 Wifi Access Point.</p>
-    </body>
-  </html>)";
-
-// middleware
-
-void handleNotFound(WebServer& server)
+void WiFiEvent(WiFiEvent_t event) 
 {
-  server.onNotFound([&server]{
-    server.send(
-      302, "text/html", R"(
-      <!DOCTYPE html>
-      <html>
-        <body>
-          <p>Page not found </p>
-        </body>
-      </html>)"
-    );
-  });
-}
-
-void WiFiEvent(WiFiEvent_t event) {
   switch (event) {
     case ARDUINO_EVENT_WIFI_STA_GOT_IP:
       // delay a lil bit before switching over from AP to STA
@@ -75,6 +45,16 @@ void WiFiEvent(WiFiEvent_t event) {
     default: break;
   }
 }
+
+// request handlers
+
+void handleNotFound(WebServer& server)
+{
+  server.onNotFound([&server]{
+    server.send(404, "text/html", NotFoundContent);
+  });
+}
+
 
 void handleWifiConnection()
 {
@@ -97,19 +77,9 @@ void handleWifiConnection()
   }
 
   StreamString content;
-  content.print(R"(
-    <p>Setup the STA wifi:</p>
-    <form method='post' action='/connect-wifi'>
-      <input name="ssid" type='text' placeholder='ssid' required/>
-      <input name='password' type='password' placeholder='password' required/>
-      <input type="submit" value="Connect"/>
-    </form>
-  )");
-  content.print("<p>");
-  content.print(errorMsg);
-  content.print("</p>");
+  content.printf(APWifiSetupContent, errorMsg);
 
-  APServer.send(200, "text/html", writeHTML(content));
+  APServer.send(200, "text/html", (String)content);
 }
 
 void setup()
@@ -152,28 +122,13 @@ void loop()
 
 // helper methods
 
-const String writeHTML(String bodyContent)
-{
-  StreamString htmlContent;
-  htmlContent.print(R"(
-    <!DOCTYPE html>
-    <html>
-    <body>)");
-  htmlContent.print(bodyContent);
-  htmlContent.print(R"(
-    </body>
-    </html>)");
-  
-  return htmlContent;
-}
-
 void setupAPServer()
 {
   if (WiFi.softAP(APSsid, APPassword))
   {
     // handle root
     APServer.on("/", [&APServer]{
-      APServer.send(200, "text/html", captivePortalRoot);
+      APServer.send(200, "text/html", APIndexContent);
     });
 
     // handle not found
@@ -185,7 +140,7 @@ void setupAPServer()
     APServer.on("/connect-wifi", handleWifiConnection);
 
     APServer.on("/wifi-connected", []{
-      APServer.send(200, "text/html", wifiFoundMessage);
+      APServer.send(200, "text/html", APEndedContent);
     });
   }
 }
@@ -194,15 +149,7 @@ void setupSTAServer()
 {
   // handle root
   STAServer.on("/", [&STAServer]{
-    STAServer.send(
-      200, "text/html", R"(
-      <!DOCTYPE html>
-      <html>
-        <body>
-          <p>Welcome to caykay's Home lab</p>
-        </body>
-      </html>)"
-    );
+    STAServer.send(200, "text/html", STAIndexContent);
   });
   // handle not found
   handleNotFound(STAServer);
