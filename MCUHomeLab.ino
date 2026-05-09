@@ -1,9 +1,7 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <DNSServer.h>
-
-#include <memory>
-#include <sstream>
+#include <StreamString.h>
 
 // MCU board constants
 
@@ -35,7 +33,7 @@ const char* wifiFoundMessage = R"(
   <!DOCTYPE html>
   <html>
     <body>
-      <p>Connected to Wifi. Closing captive portal.</p>
+      <p>Connected to Wifi. Closing ESP32 Wifi Access Point.</p>
     </body>
   </html>)";
 
@@ -80,7 +78,7 @@ void WiFiEvent(WiFiEvent_t event) {
 
 void handleWifiConnection()
 {
-  std::string errorMsg = "";
+  String errorMsg = "";
   if (APServer.hasArg("ssid") && APServer.hasArg("password"))
   {
     bool connected = connectWifi(APServer.arg("ssid"), APServer.arg("password"));
@@ -98,18 +96,20 @@ void handleWifiConnection()
     }
   }
 
-  std::stringstream content;
-  content << R"(
+  StreamString content;
+  content.print(R"(
     <p>Setup the STA wifi:</p>
     <form method='post' action='/connect-wifi'>
       <input name="ssid" type='text' placeholder='ssid' required/>
       <input name='password' type='password' placeholder='password' required/>
       <input type="submit" value="Connect"/>
     </form>
-  )";
-  content << "<p>" << errorMsg << "</p>";
+  )");
+  content.print("<p>");
+  content.print(errorMsg);
+  content.print("</p>");
 
-  APServer.send(200, "text/html", writeHTML(content.str().c_str()));
+  APServer.send(200, "text/html", writeHTML(content));
 }
 
 void setup()
@@ -122,9 +122,23 @@ void setup()
   // WiFi.AP.enableDhcpCaptivePortal();
 
   // setup AP + AP Server
-  startAPServer();
+  setupAPServer();
 
   setupSTAServer();
+
+  // dns server redirecting all requests from the AP it's ip address
+  // which is technically also the APServer's forcing the captive portal
+  if (dnsServer.start(53, "*", WiFi.softAPIP()))
+  {
+    Serial.println("Started DNS server in captive portal-mode");
+  }
+  else
+  {
+    Serial.println("Err: Can't start DNS server!");
+  }
+
+  APServer.begin();
+  Serial.printf("Started APServer at address: %s\n", WiFi.softAPIP().toString());
 }
 
 void loop()
@@ -138,35 +152,25 @@ void loop()
 
 // helper methods
 
-const char* writeHTML(const char* bodyContent)
+const String writeHTML(String bodyContent)
 {
-  std::stringstream htmlContent;
-  htmlContent << R"(
+  StreamString htmlContent;
+  htmlContent.print(R"(
     <!DOCTYPE html>
     <html>
-    <body>)";
-  htmlContent << bodyContent;
-  htmlContent << R"(
+    <body>)");
+  htmlContent.print(bodyContent);
+  htmlContent.print(R"(
     </body>
-    </html>)";
+    </html>)");
   
-  return htmlContent.str().c_str();
+  return htmlContent;
 }
 
-void startAPServer()
+void setupAPServer()
 {
   if (WiFi.softAP(APSsid, APPassword))
   {
-    Serial.printf("Started WiFi access point with SSID: %s\n", APSsid);
-
-    if (dnsServer.start(53, "*", WiFi.softAPIP())) {
-      Serial.println("Started DNS server in captive portal-mode");
-    } else {
-      Serial.println("Err: Can't start DNS server!");
-    }
-
-    APServer.begin();
-
     // handle root
     APServer.on("/", [&APServer]{
       APServer.send(200, "text/html", captivePortalRoot);
@@ -183,8 +187,6 @@ void startAPServer()
     APServer.on("/wifi-connected", []{
       APServer.send(200, "text/html", wifiFoundMessage);
     });
-
-    Serial.printf("Started APServer. Now listening at: %s\n", WiFi.softAPIP().toString());
   }
 }
 
