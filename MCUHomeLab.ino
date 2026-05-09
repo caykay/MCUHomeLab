@@ -1,18 +1,24 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <DNSServer.h>
-#include <LittleFS.h>
+#include <Preferences.h>
 #include <StreamString.h>
 
 #include "staticcontent.h"
 
-// MCU board constants
+// MCU board
 
 constexpr int LEDPin = 2;
+Preferences Preferences;
 
 // WiFi
 
 WebServer STAServer(80);
+static bool STAConnected = false;
+
+constexpr int32_t WIFI_SSID_LIMIT_MAX = 32;
+constexpr int32_t WIFI_PASS_LIMIT_MIN = 8;
+constexpr int32_t WIFI_PASS_LIMIT_MAX = 64;
 
 // AP
 
@@ -23,7 +29,7 @@ constexpr const char* APPassword = "12345678";
 
 // Wifi Events
 
-void WiFiEvent(WiFiEvent_t event) 
+void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info)
 {
   switch (event) {
     case ARDUINO_EVENT_WIFI_STA_GOT_IP:
@@ -39,14 +45,32 @@ void WiFiEvent(WiFiEvent_t event)
       Serial.printf("Started STA server at address: %s\n", WiFi.localIP().toString());
       break;
     case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
-      // restart DNS and AP servers
-      // or maybe re-attempt to connect to wifi
+      if (STAConnected)
+      {
+        Serial.printf("WiFi connection lost, reason: %s\n", info.wifi_sta_disconnected.reason);
+        WiFi.reconnect();
+      }
       break;
     default: break;
   }
 }
 
 // request handlers
+
+void handleGetLEDState()
+{
+  bool status = digitalRead(LEDPin);
+  StreamString json;
+  json.printf(R"(["state": "%s"])", !status ? "on" : "off");
+  STAServer.send(200, "application/json", (String)json);
+}
+
+void handleToggleLED()
+{
+  bool status = digitalRead(LEDPin);
+  digitalWrite(LEDPin, !status);
+  handleGetLEDState();
+}
 
 void handleNotFound(WebServer& server)
 {
@@ -84,28 +108,32 @@ void handleWifiConnection()
 
 void setup()
 {
+  pinMode(LEDPin, OUTPUT);
   Serial.begin(115200);
 
-  WiFi.mode(WIFI_AP);
   WiFi.onEvent(WiFiEvent);
 
-  // WiFi.AP.enableDhcpCaptivePortal();
-
-  // setup AP + AP Server
   setupAPServer();
-
   setupSTAServer();
+
+  // attempt to read wifi credentials from EEPROM otherwise launch captive portal
+  String ssid = String(), password = String();
+  if(readWifiCredentials(ssid, password))
+  {
+    Serial.printf("Found saved wifi credentials for ssid: %s\n", ssid);
+    WiFi.mode(WIFI_STA);
+    connectWifi(ssid, password);
+    return;
+  }
+
+  WiFi.mode(WIFI_AP_STA); // allows the esp32 to act both as a AP and STA
 
   // dns server redirecting all requests from the AP it's ip address
   // which is technically also the APServer's forcing the captive portal
   if (dnsServer.start(53, "*", WiFi.softAPIP()))
-  {
     Serial.println("Started DNS server in captive portal-mode");
-  }
   else
-  {
     Serial.println("Err: Can't start DNS server!");
-  }
 
   APServer.begin();
   Serial.printf("Started APServer at address: %s\n", WiFi.softAPIP().toString());
@@ -121,6 +149,36 @@ void loop()
 }
 
 // helper methods
+
+// write to EEPROM
+bool saveWiFiCredentials(const String& ssid, const String& password)
+{
+  bool success = true;
+  success &= Preferences.begin("credentials", false);
+  success &= Preferences.putString("ssid", ssid);
+  success &= Preferences.putString("pass", password);
+  Preferences.end();
+  if (!success)
+    Serial.printf("Failed to save wifi credentials for ssid: %s", ssid);
+  return success;
+}
+
+bool readWifiCredentials(String& ssid, String& password)
+{
+  bool success = true;
+  String og_ssid = ssid, og_pass = password;
+  success &= Preferences.begin("credentials", true);
+  ssid = Preferences.getString("ssid", ssid);
+  password = Preferences.getString("pass", password);
+  // compare against default values
+  success &= (ssid != og_ssid && password != og_pass);
+  // verify ssid and password character length according to standard limits
+  success &= (ssid.length() <= WIFI_SSID_LIMIT_MAX, password.length() > WIFI_PASS_LIMIT_MIN, password.length() <= WIFI_PASS_LIMIT_MAX);
+  Preferences.end();
+  if (!success)
+    Serial.println("Failed to extract existing wifi credentials");
+  return success;
+}
 
 void setupAPServer()
 {
@@ -152,24 +210,17 @@ void setupSTAServer()
     STAServer.send(200, "text/html", STAIndexContent);
   });
 
-  STAServer.on("toggleLED", []{
-    bool status = digitalRead(LEDPin);
-    digitalWrite(LEDPin, !status);
+  STAServer.on("/LEDstate", handleGetLEDState);
 
-    StreamString json;
-    json.printf(R"(["state": "%s"])", !status ? "on" : "off");
-    STAServer.send(200, "application/json", (String)json);
-  });
+  STAServer.on("/toggleLED", handleToggleLED);
 
   // handle not found
   handleNotFound(STAServer);
 }
 
-bool connectWifi(String ssid, String password)
+bool connectWifi(const String& ssid, const String& password)
 {
   WiFi.disconnect(true, true); 
-
-  WiFi.mode(WIFI_AP_STA); // allows the esp32 to act both as a AP and STA
   auto status = WiFi.begin(ssid, password);
   unsigned long start = millis();
   while (status != WL_CONNECTED && millis() - start <= 10'000)
@@ -181,5 +232,12 @@ bool connectWifi(String ssid, String password)
 
   if (millis() != start)
     Serial.println();
+
+  if (status == WL_CONNECTED)
+  {
+    saveWiFiCredentials(ssid, password);
+    STAConnected = true;
+  }
+
   return status == WL_CONNECTED;
 }

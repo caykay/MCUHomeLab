@@ -193,7 +193,7 @@ static const char *STAIndexContent = R"(
 
             if (!res.ok) {
               throw new Error(
-                "Network response was not ok (' + res.status + ')',
+                'Network response was not ok (' + res.status + ')',
               );
             }
 
@@ -235,21 +235,18 @@ static const char *STAIndexContent = R"(
 
         btn.addEventListener("click", toggleRemote);
 
-        // Optional: poll initial state on load if your endpoint supports GET /toggleLED or /ledState
-        // Example (uncomment and adjust endpoint if available):
-        /*
-            (async function fetchInitial(){
-                try {
-                    const r = await fetch('/ledState');
-                    if (!r.ok) return;
-                    const d = await r.json();
-                    if (d && typeof d.state !== 'undefined') {
-                        state = (typeof d.state === 'string') ? d.state.toLowerCase() === 'on' : Boolean(d.state);
-                        render();
-                    }
-                } catch(e){}
-            })();
-            */
+        // poll initial state on load if your endpoint supports GET /toggleLED or /ledState
+        (async function fetchInitial(){
+            try {
+                const r = await fetch('/LEDstate');
+                if (!r.ok) return;
+                const d = await r.json();
+                if (d && typeof d.state !== 'undefined') {
+                    state = (typeof d.state === 'string') ? d.state.toLowerCase() === 'on' : Boolean(d.state);
+                    render();
+                }
+            } catch(e){}
+        })();
       })();
     </script>
   </body>
