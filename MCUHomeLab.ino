@@ -2,6 +2,7 @@
 #include <WebServer.h>
 #include <DNSServer.h>
 #include <Preferences.h>
+#include <Ticker.h>
 #include <StreamString.h>
 
 #include "staticcontent.h"
@@ -9,7 +10,9 @@
 // MCU board
 
 constexpr int LEDPin = 2;
+constexpr int RESETPin = 5;
 Preferences Preferences;
+Ticker resetSwitchTicker;
 
 // WiFi
 
@@ -79,7 +82,6 @@ void handleNotFound(WebServer& server)
   });
 }
 
-
 void handleWifiConnection()
 {
   String errorMsg = "";
@@ -109,6 +111,7 @@ void handleWifiConnection()
 void setup()
 {
   pinMode(LEDPin, OUTPUT);
+  pinMode(RESETPin, INPUT_PULLUP);
   Serial.begin(115200);
 
   WiFi.onEvent(WiFiEvent);
@@ -145,12 +148,15 @@ void loop()
   APServer.handleClient();
   STAServer.handleClient();
 
+  // board btn handles
+  handleEEPROMResetBtn(); // listen for reset btn being pressed (reset eeprom and restart esp after 2 seconds of helding btn)
+
   delay(2);
 }
 
 // helper methods
 
-// write to EEPROM
+// write wifi credentials to EEPROM
 bool saveWiFiCredentials(const String& ssid, const String& password)
 {
   bool success = true;
@@ -163,6 +169,7 @@ bool saveWiFiCredentials(const String& ssid, const String& password)
   return success;
 }
 
+// Read credentials from EEPROM
 bool readWifiCredentials(String& ssid, String& password)
 {
   bool success = true;
@@ -178,6 +185,48 @@ bool readWifiCredentials(String& ssid, String& password)
   if (!success)
     Serial.println("Failed to extract existing wifi credentials");
   return success;
+}
+
+// clear EEPROM
+bool clearWifiCredentials()
+{
+  bool success = true;
+  success &= Preferences.begin("credentials", false);
+  success &= Preferences.remove("ssid");
+  success &= Preferences.remove("pass");
+  Preferences.end();
+  if (success)
+  {
+    Serial.println("Successfully cleared wifi credentials!");
+  }
+  else
+  {
+    Serial.println("Failed to clear existing wifi credentials");
+  }
+  return success;
+}
+
+void handleEEPROMResetBtn()
+{
+  bool state = !digitalRead(RESETPin);
+  if (state)
+  {
+    if (!resetSwitchTicker.active())
+    {
+      resetSwitchTicker.once(2.0, []{
+        // clear wifi credentials
+        if (clearWifiCredentials())
+        {
+          Serial.println("Restarting ESP board ...");
+          ESP.restart();
+        }
+      });
+    }
+  }
+  else
+  {
+    resetSwitchTicker.detach();
+  }
 }
 
 void setupAPServer()
