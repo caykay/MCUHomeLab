@@ -1,10 +1,13 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <DNSServer.h>
+#include <ESPmDNS.h>
 #include <Preferences.h>
 #include <Ticker.h>
 #include <StreamString.h>
-
+// this is not ideal (i.e. lose benefit of code autocompletion) -> to be switched with serving html content from the file system
+// this can be once we have the micro SD modules setup. i.e. could also maybe have macros that check if microSD is setup otherwise use the header content
+// which will be must simpler to preserve RAM uses
 #include "staticcontent.h"
 
 // MCU board
@@ -18,6 +21,7 @@ Ticker resetSwitchTicker;
 
 WebServer STAServer(80);
 static bool STAConnected = false;
+constexpr const char* Hostname = "myesp32";
 
 constexpr int32_t WIFI_SSID_LIMIT_MAX = 32;
 constexpr int32_t WIFI_PASS_LIMIT_MIN = 8;
@@ -42,6 +46,8 @@ void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info)
       dnsServer.stop();
       WiFi.softAPdisconnect();
       delay(50);
+      // start mdn server? allows use to use hostname.local to query the STA web server
+      startMDNS();
       // start STA server
       WiFi.mode(WIFI_STA);
       STAServer.begin();
@@ -289,4 +295,16 @@ bool connectWifi(const String& ssid, const String& password)
   }
 
   return status == WL_CONNECTED;
+}
+
+// Honestly no idea what happens here but sure hope this works
+void startMDNS()
+{
+  if (!MDNS.begin(Hostname)) {
+    Serial.println("Error setting up MDNS responder!");
+    while (1) {
+      delay(1000);
+    }
+  }
+  Serial.println("mDNS responder started");
 }
