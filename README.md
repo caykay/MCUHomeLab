@@ -19,7 +19,13 @@ NOTE: this is a WIP documentation
 
 ## TODOs
 
-- [ ] Implement a filestructure for the server files
-- [ ] Polish the STA server
-- [ ] Expand Captive portal support (i.e. mac, android, windows, ~iOS~)
-- [ ] Setup OTA firmware updates (LOW)
+- [ ] Implement a filestructure for the server files (HIGH)
+- [ ] Polish the STA server (LOW)
+- [ ] Expand Captive portal support (i.e. mac, android, windows, ~iOS~) (HIGH)
+- [ ] Setup OTA firmware updates / patching
+  - [ ] Over STA LAN (AP is more prone to external attackers) (HIGH)
+  - [ ] Over Remote server (LOW)
+    - This is pretty sick, streamlines setting up new boards and can do massive rollouts in parallel
+    - Security actions: there should be a level of auth when connecting to the server and vice - versa
+- [ ] Board communicating with a remote server (final goal) (LOW)
+  - Sort of similar ideas -> [Building an AWS IoT Core device using AWS Serverless and an ESP32](https://aws.amazon.com/blogs/compute/building-an-aws-iot-core-device-using-aws-serverless-and-an-esp32/)
